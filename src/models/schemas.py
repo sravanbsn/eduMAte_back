@@ -44,6 +44,8 @@ class UserCreate(UserBase):
 class UserResponse(UserBase):
     id: int
     teaching_credits: int
+    interests: str = ""
+    skill_level: str = "beginner"
     skills: List[SkillTagResponse] = []
 
     model_config = ConfigDict(from_attributes=True, strict=True)
@@ -65,6 +67,8 @@ class AdaptaRequest(BaseModel):
     model_config = ConfigDict(strict=True)
     text: Optional[str] = None
     url: Optional[str] = None
+    cognitive_profile: Optional[str] = None  # e.g., 'ADHD', 'Dyslexia', 'Autism'
+    tts: Optional[bool] = False
 
 
 class AdaptaResponse(BaseModel):
@@ -72,6 +76,8 @@ class AdaptaResponse(BaseModel):
     original_text: str
     bionic_text: str
     analogies: Dict[str, str]
+    tts_audio_url: Optional[str] = None
+    formatting_rules: Optional[Dict] = None
 
 
 class UserPreferenceUpdate(BaseModel):

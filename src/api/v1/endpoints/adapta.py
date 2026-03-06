@@ -50,19 +50,32 @@ async def transform_content(
                 status_code=400, detail="Must provide either text or a url."
             )
 
-        # 1. Bionic Formatting
-        bionic_text = apply_bionic_formatting(content_to_process)
-
-        # 2. NLP Jargon Identification
+        # 1. NLP Jargon Identification
         jargon_words = engine.identify_jargon(content_to_process)
 
-        # 3. Plain Language Generation via LangChain
+        # 2. Plain Language Generation via LangChain
         analogies = await engine.generate_analogies(jargon_words, content_to_process)
+
+        # 3. Swap Jargon inline
+        swapped_text = engine.swap_jargon(content_to_process, analogies)
+
+        # 4. Bionic Formatting applied to swapped text
+        bionic_text = apply_bionic_formatting(swapped_text)
+
+        # 5. Conditional TTS Generation
+        tts_audio_url = None
+        if request.tts:
+            tts_audio_url = await engine.generate_tts_audio(swapped_text, 1.0)
+
+        # 6. UI Formatting based on Cognitive Profile
+        formatting_rules = engine.get_cognitive_formatting(request.cognitive_profile)
 
         return AdaptaResponse(
             original_text=content_to_process,
             bionic_text=bionic_text,
             analogies=analogies,
+            tts_audio_url=tts_audio_url,
+            formatting_rules=formatting_rules,
         )
 
     except httpx.HTTPStatusError as e:

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import httpx
 import spacy
@@ -49,6 +49,24 @@ Output exactly one simple explanation per jargon term, formatted as:
 Term 1: Explanation
 Term 2: Explanation
 """
+
+    def get_cognitive_formatting(self, profile: Optional[str]) -> Dict:
+        """
+        Create a payload of specific UI formatting rules based on the student's Cognitive Profile.
+        """
+        if not profile:
+            return {"theme": "standard", "font": "sans-serif"}
+            
+        profile_lower = profile.lower()
+        if "adhd" in profile_lower:
+            return {"read_mask": True, "highlight_active_line": True, "bionic_reading": True, "font": "sans-serif", "colors": "high-contrast"}
+        elif "dyslexia" in profile_lower:
+            return {"font": "OpenDyslexic", "letter_spacing": "1.5", "line_height": "2.0", "background_color": "#FDF5E6", "text_align": "left"}
+        elif "autism" in profile_lower:
+            return {"reduce_motion": True, "background_color": "#E8E8E8", "font_color": "#333333", "hide_images": True, "simplify_layout": True}
+        
+        return {"theme": "standard", "font": "sans-serif"}
+
 
     def identify_jargon(self, text: str) -> List[str]:
         """
@@ -107,6 +125,21 @@ Term 2: Explanation
             logger.error(f"Error generating analogies: {e}")
             raise  # Let tenacity handle retries
 
+    def swap_jargon(self, text: str, analogies: Dict[str, str]) -> str:
+        """
+        Swap complex jargon for simpler analogies inline instantly.
+        """
+        swapped_text = text
+        for jargon, analogy in analogies.items():
+            # Replace jargon with the analogy in brackets so it's clear
+            swapped_text = re.sub(
+                rf"\b{re.escape(jargon)}\b",
+                f"{jargon} [{analogy}]",
+                swapped_text,
+                flags=re.IGNORECASE
+            )
+        return swapped_text
+
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)
     )
@@ -155,14 +188,8 @@ Syllabus Text:
 
 def apply_bionic_formatting(text: str) -> str:
     """
-    Parses a string and wraps the first 1-3 letters of every word in <b> tags
-    to assist ADHD/Dyslexic readers by serving as artificial fixation points.
-
-    Inputs:
-        - text (str): Plain text string.
-        Output:
-        - str: HTML-formatted Bionic Reading string.
-    EduMate Module: AdaptaLearn
+    Parses a string and wraps key syllables (typically the first vowel cluster) of every word in <b> tags
+    to assist ADHD/Dyslexic readers by serving as artificial fixation points instantly.
     """
 
     def bionic_word(word):
@@ -170,23 +197,26 @@ def apply_bionic_formatting(text: str) -> str:
         stripped_word = re.sub(r"[^\w\s]", "", word)
         length = len(stripped_word)
 
-        if length <= 3:
-            fixation_len = 1
-        elif length <= 5:
-            fixation_len = 2
-        else:
-            fixation_len = 3
+        if length <= 2:
+            return f"<b>{word}</b>"
 
-        # Try to find the actual alphanumeric starting characters, skipping leading punctuation
         match = re.search(r"[a-zA-Z0-9]", word)
         if match:
             start_idx = match.start()
-            # Wrap the fixation point
+            # Bionic fix: simulate key syllable by targeting up to the first vowel + 1 consonant
+            vowel_search = re.search(r"[aeiouyAEIOUY]", word[start_idx:])
+            if vowel_search:
+                fixation_len = vowel_search.end()
+            else:
+                fixation_len = 2
+                
+            if fixation_len >= length and length > 3:
+                fixation_len = length // 2
+
             bold_part = word[: start_idx + fixation_len]
             rest = word[start_idx + fixation_len :]
             return f"<b>{bold_part}</b>{rest}"
-        else:
-            return word  # Failsafe for pure punctuation
+        return word  # Failsafe for pure punctuation
 
     words = text.split(" ")
     bionic_words = [bionic_word(w) for w in words]
@@ -206,16 +236,19 @@ def scrub_html_content(html_string: str) -> str:
     """
     soup = BeautifulSoup(html_string, "html.parser")
 
-    # Remove undesirable elements
-    for element in soup(
-        ["script", "style", "nav", "aside", "header", "footer", "button"]
-    ):
+    # Remove Peripheral UI Clutter specifically reducing sensory overload
+    for element in soup(["script", "style", "nav", "aside", "header", "footer", "button", "iframe", "form", "svg", "canvas", "noscript"]):
         element.decompose()
+        
+    # Overload sensory visual scrubbing (ads, banners, sidebars, popups)
+    for cl in ["ad", "banner", "sidebar", "menu", "popup", "modal", "cookie"]:
+        for element in soup.find_all(attrs={"class": re.compile(cl, re.I)}):
+            element.decompose()
+        for element in soup.find_all(attrs={"id": re.compile(cl, re.I)}):
+            element.decompose()
 
     # Get text and clean up whitespace
     text = soup.get_text(separator=" ")
-    lines = (line.strip() for line in text.splitlines())
-    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-    cleaned_text = " ".join(chunk for chunk in chunks if chunk)
+    cleaned_text = " ".join(text.split())
 
     return cleaned_text

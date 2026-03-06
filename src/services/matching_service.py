@@ -3,7 +3,7 @@ import logging
 
 import redis.asyncio as redis
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Cache connection setup
 redis_client = redis.from_url(
-    settings.REDIS_URL if hasattr(settings, "REDIS_URL") else "redis://localhost:6379",
+    settings.REDIS_URL,
     decode_responses=True,
 )
 
@@ -62,57 +62,61 @@ async def find_tutor_match(
         student = student_res.scalars().first()
         student_style = student.learning_style if student else "visual"
 
-        stmt = (
-            select(User)
-            .join(User.skills)
-            .options(selectinload(User.skills))
-            .where(SkillTag.name == skill_name)
-            .where(User.id.in_(online_tutor_ids))
-            .where(User.teaching_credits >= 0)
-        )
-
-        result = await db.execute(stmt)
-        tutors = result.scalars().all()
-
-        if not tutors:
-            return None
-
-        best_tutor = None
-        best_score = -1
-
-        for tutor in tutors:
-            # 1. Base Score (Teaching Credits)
-            score = tutor.teaching_credits * 0.1
-
-            # 2. Learning Styles Match
-            if tutor.learning_style == student_style:
-                score += 5.0  # Compatibility bonus
-
-            # 3. Previous Feedback Ratings Average for this Mentor from this student
-            avg_feedback_stmt = select(func.avg(TutorFeedback.rating)).where(
-                TutorFeedback.tutor_id == tutor.id,
+        # 1. Subquery for Direct Previous Feedback (Highly Rated)
+        direct_avg = (
+            select(
+                TutorFeedback.tutor_id,
+                func.coalesce(func.avg(TutorFeedback.rating), 0).label("direct_avg"),
+            )
+            .where(
                 TutorFeedback.student_id == student_id,
                 TutorFeedback.skill_tag == skill_name,
             )
-            feedback_res = await db.execute(avg_feedback_stmt)
-            avg_rating = feedback_res.scalar()
+            .group_by(TutorFeedback.tutor_id)
+            .subquery()
+        )
 
-            if avg_rating:
-                # Highly rate return matches
-                score += avg_rating * 2.0
-            else:
-                # General success rate bonus lookup
-                general_feedback_stmt = select(func.avg(TutorFeedback.rating)).where(
-                    TutorFeedback.tutor_id == tutor.id
-                )
-                gen_res = await db.execute(general_feedback_stmt)
-                gen_rating = gen_res.scalar()
-                if gen_rating:
-                    score += gen_rating * 1.0
+        # 2. Subquery for General Feedback Average
+        general_avg = (
+            select(
+                TutorFeedback.tutor_id,
+                func.coalesce(func.avg(TutorFeedback.rating), 0).label("gen_avg"),
+            )
+            .group_by(TutorFeedback.tutor_id)
+            .subquery()
+        )
 
-            if score > best_score:
-                best_score = score
-                best_tutor = tutor
+        # 3. Calculate optimized score on the DB level to execute < 150ms
+        score_expr = (
+            User.teaching_credits * 0.1
+            + case((User.learning_style == student_style, 5.0), else_=0.0)
+            + case(
+                (direct_avg.c.direct_avg > 0, direct_avg.c.direct_avg * 2.0),
+                else_=func.coalesce(general_avg.c.gen_avg, 0) * 1.0,
+            )
+        )
+
+        stmt = (
+            select(User, score_expr.label("compatibility_score"))
+            .join(User.skills)
+            .options(selectinload(User.skills))
+            .outerjoin(direct_avg, User.id == direct_avg.c.tutor_id)
+            .outerjoin(general_avg, User.id == general_avg.c.tutor_id)
+            .where(SkillTag.name == skill_name)
+            .where(User.id.in_(online_tutor_ids))
+            .where(User.teaching_credits >= 0)
+            .order_by(score_expr.desc())
+            .limit(1)
+        )
+
+        result = await db.execute(stmt)
+        match = result.first()
+
+        if not match:
+            return None
+
+        best_tutor = match[0]
+        best_score = match[1]
 
         # Write to Cache with 5 min TTL
         if best_tutor:

@@ -40,8 +40,10 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    teaching_credits = Column(Integer, default=0, nullable=False)
-    learning_style = Column(String, default="visual", nullable=False)
+    teaching_credits = Column(Integer, default=0, nullable=False, index=True)
+    learning_style = Column(String, default="visual", nullable=False, index=True)
+    interests = Column(String, default="", nullable=False)
+    skill_level = Column(String, default="beginner", nullable=False)
 
     # Relationship to SkillTags
     skills = relationship("SkillTag", secondary=user_skills, back_populates="users")

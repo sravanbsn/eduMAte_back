@@ -26,11 +26,15 @@ class FeedbackEngine:
         Summarize transcript and generate 3 Targeted Practice recommendations based on weak points.
         """
         prompt_text = """Analyze the following tutoring session transcript.
+Evaluate the overall 'Session Quality' focusing on tutor helpfulness and safety (e.g. offensive language or complete lack of effort).
 Provide a short summary and exactly 3 'Targeted Practice' recommendations based on the student's weak points.
+Finally, suggest 'Post-Session Options' for the student, indicating if they should report the tutor based on your quality check.
 
 Format restrictions:
 Return a JSON object with:
 "summary": a short string summarizing the session.
+"quality_flag": boolean, true if the session was offensive, unsafe, or extremely poor quality.
+"post_session_options": object with "suggested_rating" (integer 1-5) and "report_advised" (boolean).
 "recommendations": a list of 3 strings containing the practice recommendations.
 
 Transcript:
@@ -94,7 +98,15 @@ async def process_session_feedback(
     engine = FeedbackEngine()
     try:
         ai_analysis = await engine.generate_actionable_summaries(transcript)
-    except Exception:
-        ai_analysis = {"summary": "Transcript analysis failed.", "recommendations": []}
-
-    return {"message": "Feedback submitted successfully.", "ai_analysis": ai_analysis}
+        return {
+            "message": "Feedback submitted successfully.",
+            "feedback_id": feedback.id,
+            "ai_analysis": ai_analysis
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate AI analysis: {e}")
+        return {
+            "message": "Feedback submitted, but AI analysis failed.",
+            "feedback_id": feedback.id,
+            "ai_analysis": {"summary": "Transcript analysis failed.", "recommendations": []}
+        }

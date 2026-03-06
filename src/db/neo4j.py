@@ -45,9 +45,11 @@ class Neo4jDatabase:
         return self._driver.session()
 
 
+from src.core.config import settings
+
 neo4j_db = Neo4jDatabase(
-    uri="", user="", password=""
-)  # Injected later in config/startup
+    uri=settings.NEO4J_URI, user=settings.NEO4J_USER, password=settings.NEO4J_PASSWORD
+)
 
 
 async def init_neo4j_constraints(db: Neo4jDatabase):

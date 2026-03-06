@@ -19,12 +19,22 @@ class Settings(BaseSettings):
     )
     MASTERY_TOKEN_CONTRACT_ADDRESS: str = "0xYourDeployedContractAddress"
 
+    # Google Auth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
+    # Real-time Translation
+    GOOGLE_CLOUD_PROJECT: str = ""
+
     # PostgreSQL Configuration (Defaulting to localhost for dev)
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: str = "5432"
     POSTGRES_DB: str = "skillswarm_db"
+
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379"
 
     # Neo4j Configuration
     NEO4J_URI: str = "bolt://localhost:7687"

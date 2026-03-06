@@ -11,9 +11,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from src.api.v1.endpoints import adapta, blockchain, skillswarm, socratic, teacher, webhooks
+from src.api.v1.endpoints import adapta, auth, blockchain, skillswarm, socratic, teacher, webhooks
 from src.core.config import settings
 from src.core.logger import RequestIdMiddleware
+from src.db.neo4j import init_neo4j_constraints, neo4j_db
 from src.sockets import sio
 
 # Set dummy key for local testing environment without crashing LangChain
@@ -32,6 +33,17 @@ app = FastAPI(
         "email": "dev@skillswarm.edu",
     },
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Handles startup tasks like initializing database connections and constraints.
+    """
+    logger.info("Initializing Neo4j Knowledge Graph schema...")
+    try:
+        await init_neo4j_constraints(neo4j_db)
+    except Exception as e:
+        logger.error(f"Failed to initialize Neo4j: {e}")
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -70,6 +82,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(socratic.router, prefix="/api/v1/socratic", tags=["SocraticBridge"])
 app.include_router(skillswarm.router, prefix="/api/v1/skillswarm", tags=["SkillSwarm"])
 app.include_router(adapta.router, prefix="/api/v1/adapta", tags=["AdaptaLearn"])

@@ -79,3 +79,31 @@ async def end_session(sid, data):
         )
         await sio.leave_room(sid, room_id)
         print(f"SID {sid} left room {room_id} and ended session.")
+
+
+@sio.event
+async def translate_speech(sid, data):
+    """
+    Real-time bidirectional AI voice translation for the Session Loop.
+    """
+    room_id = data.get("room_id")
+    text = data.get("text")
+    target_lang = data.get("target_language", "en")
+    
+    if room_id and text:
+        # Real-time bidirectional AI voice translation logic
+        try:
+            from google.cloud import translate_v2 as translate
+            translate_client = translate.Client()
+            result = translate_client.translate(text, target_language=target_lang)
+            translated_text = result['translatedText']
+        except Exception as e:
+            print(f"Translation Error: {e}")
+            translated_text = f"[Mock Translation to {target_lang}]: {text}"
+        
+        await sio.emit(
+            "translated_speech",
+            {"original": text, "translated": translated_text, "from": sid},
+            room=room_id,
+            skip_sid=sid,
+        )

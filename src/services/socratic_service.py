@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.db.neo4j import neo4j_db
+from src.db.postgres import SessionLocal
 from src.models.postgres import LogicalFallacyLog
 
 logger = logging.getLogger(__name__)
@@ -133,12 +134,11 @@ Knowledge Graph Context regarding the student's concept:
             raise  # Let tenacity handle retries
 
 
-async def log_fallacy(db: AsyncSession, user_id: int, student_text: str) -> None:
+async def log_fallacy(user_id: int, student_text: str) -> None:
     """
     Analyzes the student's text for logical fallacies and logs it.
 
     Inputs:
-        - db (AsyncSession): Database session.
         - user_id (int): Student ID.
         - student_text (str): The prompt that was submitted.
     Output:
@@ -157,15 +157,15 @@ async def log_fallacy(db: AsyncSession, user_id: int, student_text: str) -> None
 
     if detected_fallacy:
         try:
-            new_log = LogicalFallacyLog(
-                user_id=user_id, fallacy_type=detected_fallacy, context=student_text
-            )
-            db.add(new_log)
-            await db.commit()
-            logger.info(f"Logged fallacy '{detected_fallacy}' for user {user_id}")
+            async with SessionLocal() as db:
+                new_log = LogicalFallacyLog(
+                    user_id=user_id, fallacy_type=detected_fallacy, context=student_text
+                )
+                db.add(new_log)
+                await db.commit()
+                logger.info(f"Logged fallacy '{detected_fallacy}' for user {user_id}")
         except Exception as e:
             logger.error(f"Error logging fallacy: {e}")
-            await db.rollback()
 
 
 async def log_reasoning_step_neo4j(
@@ -285,7 +285,7 @@ async def process_socratic_inquiry(
     EduMate Module: SocraticBridge
     """
     # 1. Background task to track fallacies
-    asyncio.create_task(log_fallacy(db, user_id, question))
+    asyncio.create_task(log_fallacy(user_id, question))
 
     # 2. Fetch recent reasoning map steps for context and frustration detection
     recent_steps = await get_reasoning_map_neo4j(user_id, concept_name)
