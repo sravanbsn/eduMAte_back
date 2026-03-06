@@ -10,3 +10,6 @@ openai
 google-cloud-translate
 spacy
 pydantic-settings
+web3
+eth-account
+beautifulsoup4
