@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+neo4j
+python-jose[cryptography]
+passlib[bcrypt]
+langchain
+openai
+google-cloud-translate
+spacy
+pydantic-settings
