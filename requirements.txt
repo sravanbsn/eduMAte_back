@@ -13,3 +13,5 @@ pydantic-settings
 web3
 eth-account
 beautifulsoup4
+lxml
+httpx

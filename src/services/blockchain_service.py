@@ -11,6 +11,9 @@ from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Global httpx client for reuse
+http_client = httpx.Client(timeout=10)
+
 # Basic ABI for a mint function: function mint(address to, string memory skill)
 MINIMAL_ERC721_ABI = [
     {
@@ -145,11 +148,13 @@ def mint_mastery_token_sync(user_id: int, skill_tag: str) -> str | None:
         }
 
         # We fire and forget the webhook call
-        httpx.post(
-            "http://127.0.0.1:8000/api/v1/webhooks/blockchain/mastery_token",
-            json=payload,
-            timeout=5,
-        )
+        try:
+            http_client.post(
+                "http://127.0.0.1:8000/api/v1/webhooks/blockchain/mastery_token",
+                json=payload,
+            )
+        except Exception as e:
+            logger.error(f"Failed to trigger Mastery Token webhook: {e}")
 
         return hex_hash
 
@@ -311,11 +316,13 @@ def transfer_credits_sync(sender_id: int, receiver_id: int, amount: int) -> str 
             "security_hash": sec_hash,
         }
 
-        httpx.post(
-            "http://127.0.0.1:8000/api/v1/webhooks/blockchain/credit_transfer",
-            json=payload,
-            timeout=5,
-        )
+        try:
+            http_client.post(
+                "http://127.0.0.1:8000/api/v1/webhooks/blockchain/credit_transfer",
+                json=payload,
+            )
+        except Exception as e:
+            logger.error(f"Failed to trigger Credit Transfer webhook: {e}")
 
         return hex_hash
 

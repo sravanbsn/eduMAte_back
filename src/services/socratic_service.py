@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import re
+from functools import lru_cache
 from typing import Optional
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -13,6 +15,12 @@ from src.models.postgres import LogicalFallacyLog
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex for frustration detection
+FRUSTRATION_RE = re.compile(r"don't get it|confused|help|stuck|frustrated|dont understand|lost", re.I)
+AHA_RE = re.compile(r"oh i get it|makes sense now|aha|so that means|i understand", re.I)
+
+# Simple in-memory cache for Neo4j context
+neo4j_context_cache = {}
 
 class SocraticEngine:
     """
@@ -50,6 +58,9 @@ Knowledge Graph Context regarding the student's concept:
             - str: A formatted list of connected concepts to append to the LLM context.
         EduMate Module: SocraticBridge engine
         """
+        if concept_name in neo4j_context_cache:
+            return neo4j_context_cache[concept_name]
+
         query = """
         MATCH (c:Concept {name: $name})-[r]-(connected)
         RETURN c.name as name, type(r) as relation, connected.name as related_concept
@@ -68,33 +79,24 @@ Knowledge Graph Context regarding the student's concept:
             logger.error(f"Failed fetching Neo4j context for '{concept_name}': {e}")
 
         if not context_lines:
-            return f"No specific graph context found for '{concept_name}'. Rely on general knowledge."
-
-        return "\n".join(context_lines)
+            context = f"No specific graph context found for '{concept_name}'. Rely on general knowledge."
+        else:
+            context = "\n".join(context_lines)
+        
+        neo4j_context_cache[concept_name] = context
+        return context
 
     def detect_frustration(self, question: str, recent_steps: list[dict]) -> bool:
         """
         Heuristic check: If the student shows frustration in 3 consecutive turns, return True for hint escalation.
         """
-        frustration_keywords = [
-            "don't get it",
-            "confused",
-            "help",
-            "stuck",
-            "frustrated",
-            "dont understand",
-            "lost",
-        ]
-
-        current_frustrated = any(kw in question.lower() for kw in frustration_keywords)
-        if not current_frustrated:
+        if not FRUSTRATION_RE.search(question):
             return False
 
         frustrated_turns = 1  # Counting the current one
         # recent_steps is chronological, so we iterate backwards
         for step in reversed(recent_steps):
-            q_lower = step["question"].lower()
-            if any(kw in q_lower for kw in frustration_keywords):
+            if FRUSTRATION_RE.search(step["question"]):
                 frustrated_turns += 1
             else:
                 break
@@ -301,14 +303,7 @@ async def process_socratic_inquiry(
     )
 
     # 4. Detect "Aha!" moment
-    aha_keywords = [
-        "oh i get it",
-        "makes sense now",
-        "aha",
-        "so that means",
-        "i understand",
-    ]
-    is_aha_moment = any(kw in question.lower() for kw in aha_keywords)
+    is_aha_moment = bool(AHA_RE.search(question))
 
     if is_aha_moment:
         logger.info(

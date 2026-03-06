@@ -13,9 +13,15 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex patterns for optimization
+STRIP_NON_ALNUM = re.compile(r"[^\w\s]")
+FIND_ALNUM = re.compile(r"[a-zA-Z0-9]")
+FIND_VOWEL = re.compile(r"[aeiouyAEIOUY]")
+CLUTTER_ATTRS = re.compile(r"ad|banner|sidebar|menu|popup|modal|cookie", re.I)
+
 # Try to load the English language model
 try:
-    nlp = spacy.load("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])  # Only keep what we need for POS tagging
 except OSError:
     logger.warning(
         "Spacy model 'en_core_web_sm' not found. Will be limited functionality or requires manual download via: python -m spacy download en_core_web_sm"
@@ -194,17 +200,17 @@ def apply_bionic_formatting(text: str) -> str:
 
     def bionic_word(word):
         # Strip trailing punctuation for calculation
-        stripped_word = re.sub(r"[^\w\s]", "", word)
+        stripped_word = STRIP_NON_ALNUM.sub("", word)
         length = len(stripped_word)
 
         if length <= 2:
             return f"<b>{word}</b>"
 
-        match = re.search(r"[a-zA-Z0-9]", word)
+        match = FIND_ALNUM.search(word)
         if match:
             start_idx = match.start()
             # Bionic fix: simulate key syllable by targeting up to the first vowel + 1 consonant
-            vowel_search = re.search(r"[aeiouyAEIOUY]", word[start_idx:])
+            vowel_search = FIND_VOWEL.search(word[start_idx:])
             if vowel_search:
                 fixation_len = vowel_search.end()
             else:
@@ -218,9 +224,8 @@ def apply_bionic_formatting(text: str) -> str:
             return f"<b>{bold_part}</b>{rest}"
         return word  # Failsafe for pure punctuation
 
-    words = text.split(" ")
-    bionic_words = [bionic_word(w) for w in words]
-    return " ".join(bionic_words)
+    # Optimized split and join
+    return " ".join(bionic_word(w) for w in text.split())
 
 
 def scrub_html_content(html_string: str) -> str:
@@ -234,21 +239,19 @@ def scrub_html_content(html_string: str) -> str:
         - str: Cleaned plaintext document string.
     EduMate Module: AdaptaLearn / General
     """
-    soup = BeautifulSoup(html_string, "html.parser")
+    soup = BeautifulSoup(html_string, "lxml")  # Faster than "html.parser"
 
     # Remove Peripheral UI Clutter specifically reducing sensory overload
     for element in soup(["script", "style", "nav", "aside", "header", "footer", "button", "iframe", "form", "svg", "canvas", "noscript"]):
         element.decompose()
         
     # Overload sensory visual scrubbing (ads, banners, sidebars, popups)
-    for cl in ["ad", "banner", "sidebar", "menu", "popup", "modal", "cookie"]:
-        for element in soup.find_all(attrs={"class": re.compile(cl, re.I)}):
-            element.decompose()
-        for element in soup.find_all(attrs={"id": re.compile(cl, re.I)}):
-            element.decompose()
+    # Using pre-compiled regex and searching attributes more efficiently
+    for element in soup.find_all(attrs={"class": CLUTTER_ATTRS}):
+        element.decompose()
+    for element in soup.find_all(attrs={"id": CLUTTER_ATTRS}):
+        element.decompose()
 
     # Get text and clean up whitespace
     text = soup.get_text(separator=" ")
-    cleaned_text = " ".join(text.split())
-
-    return cleaned_text
+    return " ".join(text.split())
